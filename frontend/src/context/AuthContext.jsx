@@ -68,13 +68,27 @@ export const AuthProvider = ({ children }) => {
     return data;
   };
 
-  // Google OAuth sign in function using Supabase directly
   // Google OAuth sign in function using Firebase Auth (popup) or fallback to Supabase direct OAuth
   const signInWithGoogle = async () => {
     if (isFirebaseConfigured && firebaseAuth && googleProvider) {
       console.log('Authenticating with Google via Firebase Auth popup...');
       const result = await signInWithPopup(firebaseAuth, googleProvider);
       const idToken = await result.user.getIdToken();
+      
+      // Decode ID token to inspect audience (Google Client ID)
+      try {
+        const parts = idToken.split('.');
+        if (parts[1]) {
+          const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+          console.log('--- Google ID Token Diagnostics ---');
+          console.log('Token Audience (Google Client ID):', payload.aud);
+          console.log('Token Issuer:', payload.iss);
+          console.log('Token Email:', payload.email);
+          console.log('-----------------------------------');
+        }
+      } catch (err) {
+        console.warn('Failed to parse ID Token payload:', err);
+      }
       
       const { data, error } = await supabase.auth.signInWithIdToken({
         provider: 'google',
