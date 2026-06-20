@@ -539,15 +539,8 @@ const Chat = () => {
     <div className="chat-window animate-fade-in" style={{ position: 'relative' }}>
       
       {/* 1. Header Area */}
-      <div className="glass-panel" style={{
-        padding: '12px 20px',
+      <div className="glass-panel chat-header-panel" style={{
         borderRadius: 'var(--border-radius-md)',
-        display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '12px',
-        marginBottom: '16px',
         border: '1px solid var(--card-border)'
       }}>
         {/* Companion Avatar, Custom Name, Status Dot */}
@@ -596,15 +589,14 @@ const Chat = () => {
           {/* Export Dropdown Trigger */}
           <div style={{ position: 'relative' }} className="export-dropdown-group">
             <button 
-              className="glass-button" 
-              style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+              className="glass-button export-btn" 
               onClick={(e) => {
                 const el = e.currentTarget.nextElementSibling;
                 el.style.display = el.style.display === 'flex' ? 'none' : 'flex';
               }}
             >
               <Download size={14} />
-              <span style={{ fontSize: '0.8rem' }}>Export</span>
+              <span className="export-text">Export</span>
             </button>
             <div style={{
               position: 'absolute',
@@ -1062,7 +1054,7 @@ const Chat = () => {
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             className="glass-input"
-            style={{ flexGrow: 1, padding: '14px 18px', borderRadius: 'var(--border-radius-sm)' }}
+            style={{ flexGrow: 1, minWidth: 0, padding: '14px 18px', borderRadius: 'var(--border-radius-sm)' }}
             disabled={isListening}
             required
           />

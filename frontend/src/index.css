@@ -935,11 +935,47 @@ h1, h2, h3, h4, h5, h6 {
   border-color: var(--primary) !important;
 }
 
+.chat-header-panel {
+  padding: 12px 20px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.export-btn {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.export-text {
+  font-size: 0.8rem;
+}
+
 /* Mobile Breakpoints: 320px to 768px */
 @media (max-width: 768px) {
   /* Layout adjustments */
   .main-content {
     padding-bottom: 84px !important; /* Space for bottom nav */
+  }
+
+  .chat-header-panel {
+    padding: 10px 12px !important;
+    gap: 8px !important;
+    margin-bottom: 12px !important;
+    justify-content: center !important;
+  }
+
+  .export-text {
+    display: none !important;
+  }
+
+  .export-btn {
+    padding: 8px !important;
   }
 
   .chat-window {
