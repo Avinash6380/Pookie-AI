@@ -482,30 +482,66 @@ const Chat = () => {
   };
 
   const handleReactionClick = async (messageId, reaction) => {
+    const originalMessages = messages;
+    let triggeredAnimation = false;
+    
+    // 1. Optimistic UI Update: update states immediately
+    setMessages(prev => prev.map(m => {
+      if (m.id === messageId) {
+        const currentReactions = m.reactions || [];
+        const userPrevReaction = currentReactions.find(r => r.user_id === user?.id);
+        
+        let updatedReactions;
+        if (userPrevReaction) {
+          if (userPrevReaction.reaction === reaction) {
+            // Toggle off -> remove
+            updatedReactions = currentReactions.filter(r => r.user_id !== user?.id);
+          } else {
+            // Update -> replace
+            updatedReactions = currentReactions.map(r => 
+              r.user_id === user?.id ? { ...r, reaction } : r
+            );
+            triggeredAnimation = true;
+          }
+        } else {
+          // Add new
+          updatedReactions = [...currentReactions, { message_id: messageId, user_id: user?.id, reaction }];
+          triggeredAnimation = true;
+        }
+        
+        return {
+          ...m,
+          reactions: updatedReactions
+        };
+      }
+      return m;
+    }));
+    
+    // Trigger animation immediately if we added or updated
+    if (triggeredAnimation) {
+      triggerFloatingReactions(messageId, reaction, reaction === '❤️');
+    }
+    
+    // Close menus instantly
+    setActiveReactionMenu(null);
+    setActiveReactingMsg(null);
+    
+    // 2. Perform API request in background
     try {
       const res = await apiCall(`/api/chat/react/${messageId}`, 'PUT', { reaction }, getAuthHeaders);
       
+      // Update with server reality (contains correct database IDs / timestamps)
       setMessages(prev => prev.map(m => {
         if (m.id === messageId) {
           const currentReactions = m.reactions || [];
           let updatedReactions;
           
           if (res.action === 'added') {
-            updatedReactions = [...currentReactions, res.reaction];
-            // Trigger floating reaction animation
-            triggerFloatingReactions(messageId, reaction, reaction === '❤️');
+            updatedReactions = [...currentReactions.filter(r => r.user_id !== user?.id), res.reaction];
           } else if (res.action === 'updated') {
-            // Replace the user's previous reaction with the new one
-            updatedReactions = currentReactions
-              .filter(r => r.user_id !== user?.id)
-              .concat([res.reaction]);
-            // Trigger floating reaction animation
-            triggerFloatingReactions(messageId, reaction, reaction === '❤️');
+            updatedReactions = [...currentReactions.filter(r => r.user_id !== user?.id), res.reaction];
           } else {
-            // Remove the reaction
-            updatedReactions = currentReactions.filter(r => 
-              !(r.user_id === user?.id && r.reaction === reaction)
-            );
+            updatedReactions = currentReactions.filter(r => r.user_id !== user?.id);
           }
           
           return {
@@ -515,10 +551,10 @@ const Chat = () => {
         }
         return m;
       }));
-      
-      setActiveReactionMenu(null);
     } catch (err) {
-      console.error('Update reaction error:', err);
+      console.error('Update reaction error, rolling back:', err);
+      // Rollback to previous state on failure
+      setMessages(originalMessages);
     }
   };
 
