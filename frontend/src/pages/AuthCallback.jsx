@@ -10,7 +10,12 @@ const AuthCallback = () => {
   useEffect(() => {
     const handleAuthCallback = async () => {
       try {
-        // Wait for Supabase to resolve the session from hash/code in the URL
+        if (!supabase) {
+          setError("Supabase client is not configured.");
+          return;
+        }
+
+        // Wait for session extraction
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (error) throw error;
@@ -18,7 +23,7 @@ const AuthCallback = () => {
         if (session) {
           navigate('/dashboard');
         } else {
-          // Listen to state changes if not resolved immediately
+          // Listen to transition events
           const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
             if (session) {
               subscription.unsubscribe();
@@ -26,17 +31,19 @@ const AuthCallback = () => {
             }
           });
           
-          // Timeout after 6 seconds
           const timeout = setTimeout(() => {
             subscription.unsubscribe();
-            setError("Authentication session resolution timed out. Please try logging in again.");
+            setError("Authentication session parsing timed out. Please try logging in again.");
           }, 6000);
           
-          return () => clearTimeout(timeout);
+          return () => {
+            clearTimeout(timeout);
+            subscription.unsubscribe();
+          };
         }
       } catch (err) {
-        console.error('OAuth callback processing error:', err);
-        setError(err.message || 'Failed to complete OAuth callback session exchange.');
+        console.error('OAuth callback error:', err);
+        setError(err.message || 'Failed to complete authentication. Please try again.');
       }
     };
 
@@ -67,7 +74,7 @@ const AuthCallback = () => {
             <div style={{ color: '#ef4444' }}>
               <AlertCircle size={48} />
             </div>
-            <h3 style={{ fontSize: '1.4rem', fontWeight: 700 }}>Authentication Failed</h3>
+            <h3 style={{ fontSize: '1.4rem', fontWeight: 700 }}>Auth Failed</h3>
             <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>{error}</p>
             <button 
               onClick={() => navigate('/login')}

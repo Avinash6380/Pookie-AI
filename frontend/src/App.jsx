@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
-import { Menu, AlertCircle, Loader, MessageSquare, History, Users, User, Settings as SettingsIcon } from 'lucide-react';
+import { Routes, Route, Navigate, NavLink } from 'react-router-dom';
+import { Menu, AlertCircle, Loader } from 'lucide-react';
 import { useAuth } from './context/AuthContext.jsx';
 import { apiCall } from './services/api.js';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
@@ -24,11 +24,6 @@ import AuthCallback from './pages/AuthCallback.jsx';
 
 const Layout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const location = useLocation();
-
-  const isTabActive = (path) => {
-    return location.pathname === path;
-  };
 
   return (
     <div className="app-container">
@@ -69,44 +64,28 @@ const Layout = ({ children }) => {
         {children}
       </main>
 
-      {/* Mobile Bottom Navigation Bar */}
+      {/* Sleek mobile bottom navigation */}
       <div className="mobile-bottom-nav">
-        <Link 
-          to="/chat" 
-          className={`bottom-nav-item ${isTabActive('/chat') ? 'active' : ''}`}
-        >
-          <MessageSquare size={20} />
-          <span>Chat</span>
-        </Link>
-        <button 
-          onClick={() => setSidebarOpen(true)} 
-          className={`bottom-nav-item ${sidebarOpen ? 'active' : ''}`}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontFamily: 'inherit' }}
-        >
-          <History size={20} />
-          <span>History</span>
-        </button>
-        <Link 
-          to="/characters" 
-          className={`bottom-nav-item ${isTabActive('/characters') ? 'active' : ''}`}
-        >
-          <Users size={20} />
-          <span>Characters</span>
-        </Link>
-        <Link 
-          to="/profile" 
-          className={`bottom-nav-item ${isTabActive('/profile') ? 'active' : ''}`}
-        >
-          <User size={20} />
-          <span>Profile</span>
-        </Link>
-        <Link 
-          to="/settings" 
-          className={`bottom-nav-item ${isTabActive('/settings') ? 'active' : ''}`}
-        >
-          <SettingsIcon size={20} />
-          <span>Settings</span>
-        </Link>
+        <NavLink to="/chat" className={({ isActive }) => `bottom-nav-item ${isActive ? 'active' : ''}`}>
+          <span className="bottom-nav-icon">💬</span>
+          <span className="bottom-nav-label">Chat</span>
+        </NavLink>
+        <NavLink to="/dashboard" className={({ isActive }) => `bottom-nav-item ${isActive ? 'active' : ''}`}>
+          <span className="bottom-nav-icon">🕘</span>
+          <span className="bottom-nav-label">History</span>
+        </NavLink>
+        <NavLink to="/characters" className={({ isActive }) => `bottom-nav-item ${isActive ? 'active' : ''}`}>
+          <span className="bottom-nav-icon">💕</span>
+          <span className="bottom-nav-label">Characters</span>
+        </NavLink>
+        <NavLink to="/profile" className={({ isActive }) => `bottom-nav-item ${isActive ? 'active' : ''}`}>
+          <span className="bottom-nav-icon">👤</span>
+          <span className="bottom-nav-label">Profile</span>
+        </NavLink>
+        <NavLink to="/settings" className={({ isActive }) => `bottom-nav-item ${isActive ? 'active' : ''}`}>
+          <span className="bottom-nav-icon">⚙️</span>
+          <span className="bottom-nav-label">Settings</span>
+        </NavLink>
       </div>
     </div>
   );

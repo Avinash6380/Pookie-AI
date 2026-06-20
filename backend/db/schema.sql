@@ -134,8 +134,12 @@ CREATE TRIGGER on_auth_user_created
 CREATE TABLE IF NOT EXISTS public.message_reactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     message_id UUID NOT NULL REFERENCES public.messages(id) ON DELETE CASCADE,
-    user_id UUID REFERENCES public.users(id) ON DELETE CASCADE, -- NULL means AI companion reacted
+    user_id UUID REFERENCES public.users(id) ON DELETE CASCADE, -- NULL means AI reaction
     reaction VARCHAR(50) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(message_id, user_id)
 );
+
+-- Index reactions for faster counts and list rendering
+CREATE INDEX IF NOT EXISTS idx_reactions_message ON public.message_reactions(message_id);
+

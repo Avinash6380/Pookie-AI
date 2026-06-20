@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../services/supabase.js';
+import { signInWithPopup } from 'firebase/auth';
 import { auth as firebaseAuth, googleProvider, isFirebaseConfigured } from '../services/firebase.js';
-import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+
 
 const AuthContext = createContext();
 
@@ -67,19 +68,34 @@ export const AuthProvider = ({ children }) => {
     return data;
   };
 
-  // Google OAuth sign in function
+  // Google OAuth sign in function using Supabase directly
+  // Google OAuth sign in function using Firebase Auth (popup) or fallback to Supabase direct OAuth
   const signInWithGoogle = async () => {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`
-      }
-    });
-    if (error) throw error;
-    return data;
+    if (isFirebaseConfigured && firebaseAuth && googleProvider) {
+      console.log('Authenticating with Google via Firebase Auth popup...');
+      const result = await signInWithPopup(firebaseAuth, googleProvider);
+      const idToken = await result.user.getIdToken();
+      
+      const { data, error } = await supabase.auth.signInWithIdToken({
+        provider: 'google',
+        token: idToken
+      });
+      if (error) throw error;
+      return data;
+    } else {
+      console.warn('Firebase configuration missing. Falling back to native Supabase OAuth redirect...');
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`
+        }
+      });
+      if (error) throw error;
+      return data;
+    }
   };
 
-  // Facebook OAuth sign in function
+  // Facebook OAuth sign in function using Supabase directly
   const signInWithFacebook = async () => {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'facebook',

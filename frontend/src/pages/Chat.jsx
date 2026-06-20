@@ -47,8 +47,8 @@ const Chat = () => {
   const [showInputEmojiPicker, setShowInputEmojiPicker] = useState(false);
   const [showAttachmentDrawer, setShowAttachmentDrawer] = useState(false);
   const [chatError, setChatError] = useState(null);
-  const [floatingEmojis, setFloatingEmojis] = useState([]); // { id, emoji, messageId }
-  const [showHeartBurst, setShowHeartBurst] = useState(false);
+  const [activeReactingMsg, setActiveReactingMsg] = useState(null); // for mobile long-press reaction popup overlay
+  const [floatingReactions, setFloatingReactions] = useState([]); // array of { id, emoji, left, delay, size, duration }
 
   // Voice Call Modal States
   const [showVoiceCallModal, setShowVoiceCallModal] = useState(false);
@@ -145,11 +145,14 @@ const Chat = () => {
     };
   }, []);
 
-  // Close context menu on click outside
+  // Close context menu and reaction menu on click outside
   useEffect(() => {
     const handleCloseMenu = (e) => {
       if (contextMenu && !e.target.closest('.custom-context-menu')) {
         setContextMenu(null);
+      }
+      if (activeReactionMenu && !e.target.closest('.emoji-selector') && !e.target.closest('.bubble-reaction-trigger')) {
+        setActiveReactionMenu(null);
       }
     };
     window.addEventListener('mousedown', handleCloseMenu);
@@ -158,7 +161,7 @@ const Chat = () => {
       window.removeEventListener('mousedown', handleCloseMenu);
       window.removeEventListener('touchstart', handleCloseMenu);
     };
-  }, [contextMenu]);
+  }, [contextMenu, activeReactionMenu]);
 
   // 3. Voice call timer effect
   useEffect(() => {
@@ -331,11 +334,7 @@ const Chat = () => {
     if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
     
     touchTimerRef.current = setTimeout(() => {
-      const pos = adjustContextMenuPos(touch.clientX, touch.clientY);
-      setContextMenu({
-        ...pos,
-        message: msg
-      });
+      setActiveReactingMsg(msg);
       if (navigator.vibrate) {
         navigator.vibrate(60);
       }
@@ -412,11 +411,10 @@ const Chat = () => {
         response.aiMessage
       ]));
 
-      // Update levels using count-based fields
+      // Update levels using backend response fields
       setActiveRelationship({
+        xp: response.relationship.xp,
         level: response.relationship.level,
-        totalMessages: response.relationship.totalMessages,
-        nextLevelTarget: response.relationship.nextLevelTarget,
         levelName: response.relationship.levelName
       });
 
@@ -451,84 +449,77 @@ const Chat = () => {
     }
   };
 
-  const triggerFloatingEmoji = (messageId, emoji) => {
-    const id = Math.random().toString();
-    setFloatingEmojis(prev => [...prev, { id, emoji, messageId }]);
-    setTimeout(() => {
-      setFloatingEmojis(prev => prev.filter(item => item.id !== id));
-    }, 1500);
+  const groupReactions = (reactions) => {
+    if (!reactions) return {};
+    const grouped = {};
+    reactions.forEach(r => {
+      grouped[r.reaction] = (grouped[r.reaction] || 0) + 1;
+    });
+    return grouped;
   };
 
-  const triggerHeartBurst = () => {
-    setShowHeartBurst(true);
+  const triggerFloatingReactions = (messageId, emoji, isHeartBurst = false) => {
+    const count = isHeartBurst ? 15 : 6;
+    const newReactions = [];
+    const timestamp = Date.now();
+    
+    for (let i = 0; i < count; i++) {
+      newReactions.push({
+        id: `${messageId}-${timestamp}-${i}-${Math.random()}`,
+        emoji: isHeartBurst ? '❤️' : emoji,
+        left: Math.random() * 80 + 10 + '%',
+        delay: Math.random() * 0.4,
+        size: Math.random() * 1.5 + 1.0 + 'rem',
+        duration: Math.random() * 1.5 + 1.5 + 's'
+      });
+    }
+    
+    setFloatingReactions(prev => [...prev, ...newReactions]);
+    
     setTimeout(() => {
-      setShowHeartBurst(false);
-    }, 1500);
+      setFloatingReactions(prev => prev.filter(r => !newReactions.some(nr => nr.id === r.id)));
+    }, 3000);
   };
 
-  const handleToggleReaction = async (messageId, reactionEmoji) => {
+  const handleReactionClick = async (messageId, reaction) => {
     try {
-      const response = await apiCall('/api/chat/reactions', 'POST', {
-        messageId,
-        reaction: reactionEmoji
-      }, getAuthHeaders);
+      const res = await apiCall(`/api/chat/react/${messageId}`, 'PUT', { reaction }, getAuthHeaders);
       
       setMessages(prev => prev.map(m => {
-        if (m.id !== messageId) return m;
-        
-        let newReactions = [...(m.reactions || [])];
-        if (response.action === 'removed') {
-          newReactions = newReactions.filter(r => r.userId !== user?.id);
-        } else if (response.action === 'updated') {
-          const exists = newReactions.some(r => r.userId === user?.id);
-          if (exists) {
-            newReactions = newReactions.map(r => r.userId === user?.id ? { userId: user?.id, reaction: reactionEmoji } : r);
+        if (m.id === messageId) {
+          const currentReactions = m.reactions || [];
+          let updatedReactions;
+          
+          if (res.action === 'added') {
+            updatedReactions = [...currentReactions, res.reaction];
+            // Trigger floating reaction animation
+            triggerFloatingReactions(messageId, reaction, reaction === '❤️');
+          } else if (res.action === 'updated') {
+            // Replace the user's previous reaction with the new one
+            updatedReactions = currentReactions
+              .filter(r => r.user_id !== user?.id)
+              .concat([res.reaction]);
+            // Trigger floating reaction animation
+            triggerFloatingReactions(messageId, reaction, reaction === '❤️');
           } else {
-            newReactions.push({ userId: user?.id, reaction: reactionEmoji });
+            // Remove the reaction
+            updatedReactions = currentReactions.filter(r => 
+              !(r.user_id === user?.id && r.reaction === reaction)
+            );
           }
-        } else if (response.action === 'added') {
-          newReactions.push({ userId: user?.id, reaction: reactionEmoji });
+          
+          return {
+            ...m,
+            reactions: updatedReactions
+          };
         }
-        
-        return {
-          ...m,
-          reactions: newReactions
-        };
+        return m;
       }));
-
-      if (response.action === 'added' || response.action === 'updated') {
-        triggerFloatingEmoji(messageId, reactionEmoji);
-        if (reactionEmoji === '❤️') {
-          triggerHeartBurst();
-        }
-      }
+      
       setActiveReactionMenu(null);
     } catch (err) {
-      console.error('Toggle reaction error:', err);
+      console.error('Update reaction error:', err);
     }
-  };
-
-  const getReactionGroups = (reactions) => {
-    if (!reactions || reactions.length === 0) return [];
-    const groups = {};
-    reactions.forEach(r => {
-      if (!groups[r.reaction]) {
-        groups[r.reaction] = {
-          emoji: r.reaction,
-          count: 0,
-          userReacted: false,
-          aiReacted: false
-        };
-      }
-      groups[r.reaction].count += 1;
-      if (r.userId === user?.id) {
-        groups[r.reaction].userReacted = true;
-      }
-      if (r.userId === null) {
-        groups[r.reaction].aiReacted = true;
-      }
-    });
-    return Object.values(groups);
   };
 
   const handleExportTxt = () => exportToTxt(getCompanionName(), messages);
@@ -727,18 +718,12 @@ const Chat = () => {
           filteredMessages.map((msg) => {
             const isUser = msg.role === 'user';
             const isSpeaking = !isUser && currentlyReading?.id === msg.id && speechState === 'playing';
-            const reactionGroups = getReactionGroups(msg.reactions);
-            const hasReactions = reactionGroups.length > 0;
             
             return (
               <div 
                 key={msg.id} 
                 className={`chat-bubble ${isUser ? 'user' : 'ai'} ${isSpeaking ? 'speaking' : ''}`}
-                style={{ 
-                  paddingBottom: hasReactions ? '26px' : '12px', 
-                  position: 'relative' 
-                }}
-                onMouseLeave={() => setActiveReactionMenu(null)}
+                style={{ paddingBottom: (msg.reactions && msg.reactions.length > 0) ? '32px' : '12px', position: 'relative' }}
                 onContextMenu={(e) => handleContextMenu(e, msg)}
                 onTouchStart={(e) => handleTouchStart(e, msg)}
                 onTouchMove={(e) => handleTouchMove(e)}
@@ -756,113 +741,136 @@ const Chat = () => {
                   )}
                 </p>
 
-                {/* Floating Emoji Indicators inside the bubble */}
-                {floatingEmojis.filter(fe => fe.messageId === msg.id).map(fe => (
-                  <span key={fe.id} className="floating-emoji-indicator">
-                    {fe.emoji}
-                  </span>
-                ))}
+                {/* Floating animations container */}
+                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', overflow: 'visible' }}>
+                  {floatingReactions.filter(fr => fr.id.startsWith(msg.id)).map(r => (
+                    <span
+                      key={r.id}
+                      className="floating-emoji-particle"
+                      style={{
+                        left: r.left,
+                        animationDelay: `${r.delay}s`,
+                        fontSize: r.size,
+                        animationDuration: r.duration
+                      }}
+                    >
+                      {r.emoji}
+                    </span>
+                  ))}
+                </div>
 
-                {/* Reaction Badges */}
-                {hasReactions && (
-                  <div className="message-reaction-badges" style={{
+                {/* Modern reactions badges display */}
+                {msg.reactions && msg.reactions.length > 0 && (
+                  <div className="message-reactions-list" style={{
                     display: 'flex',
                     flexWrap: 'wrap',
                     gap: '4px',
                     position: 'absolute',
-                    bottom: '-8px',
+                    bottom: '-10px',
                     left: isUser ? 'auto' : '12px',
                     right: isUser ? '12px' : 'auto',
-                    zIndex: 2
+                    zIndex: 10
                   }}>
-                    {reactionGroups.map(group => (
-                      <button
-                        key={group.emoji}
-                        type="button"
-                        className={`reaction-badge ${group.userReacted ? 'active' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleReaction(msg.id, group.emoji);
-                        }}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '3px',
-                          background: group.userReacted ? 'rgba(255, 79, 129, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-                          border: group.userReacted ? '1px solid var(--primary)' : '1px solid var(--card-border)',
-                          borderRadius: '12px',
-                          padding: '2px 6px',
-                          fontSize: '0.75rem',
-                          cursor: 'pointer',
-                          color: group.userReacted ? 'var(--primary)' : 'var(--text-main)',
-                          transition: 'all 0.2s ease',
-                          pointerEvents: 'auto'
-                        }}
-                        title={
-                          `${group.count} reaction(s) (${group.userReacted ? 'You' : ''}${group.userReacted && group.aiReacted ? ' & ' : ''}${group.aiReacted ? 'AI' : ''})`
-                        }
-                      >
-                        <span>{group.emoji}</span>
-                        {group.count > 1 && <span style={{ fontWeight: 600 }}>{group.count}</span>}
-                      </button>
-                    ))}
+                    {Object.entries(groupReactions(msg.reactions)).map(([emoji, count]) => {
+                      const hasReacted = msg.reactions.some(r => r.reaction === emoji && r.user_id === user?.id);
+                      return (
+                        <button 
+                          key={emoji}
+                          className={`reaction-badge ${hasReacted ? 'active' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleReactionClick(msg.id, emoji);
+                          }}
+                          style={{
+                            background: hasReacted ? 'rgba(255, 79, 129, 0.15)' : 'rgba(255, 255, 255, 0.08)',
+                            border: hasReacted ? '1px solid var(--primary)' : '1px solid var(--card-border)',
+                            borderRadius: '12px',
+                            padding: '2px 8px',
+                            fontSize: '0.72rem',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            cursor: 'pointer',
+                            color: 'var(--text-main)',
+                            transition: 'all 0.2s ease',
+                            boxShadow: 'var(--card-shadow)'
+                          }}
+                        >
+                          <span className="reaction-emoji">{emoji}</span>
+                          <span className="reaction-count" style={{ fontWeight: 600 }}>{count}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
 
-                {/* Hover Smile reactions trigger */}
+                {/* Hover reactions trigger button (Mid Right Placement) */}
                 <button
-                  onClick={() => setActiveReactionMenu(activeReactionMenu === msg.id ? null : msg.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveReactionMenu(activeReactionMenu === msg.id ? null : msg.id);
+                  }}
                   style={{
                     position: 'absolute',
-                    right: isUser ? 'auto' : '-32px',
-                    left: isUser ? '-32px' : 'auto',
+                    right: '-10px',
                     top: '50%',
                     transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--text-muted)',
-                    cursor: 'pointer',
-                    opacity: 0,
-                    transition: 'opacity 0.2s ease',
+                    background: 'rgba(30, 30, 30, 0.85)',
+                    border: '1px solid var(--card-border)',
+                    borderRadius: '50%',
+                    width: '24px',
+                    height: '24px',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    padding: '4px',
-                    zIndex: 5
-                  }}
-                  className="reaction-trigger-btn"
-                  title="React with emoji"
-                  type="button"
-                >
-                  <Smile size={16} />
-                </button>
-
-                {activeReactionMenu === msg.id && (
-                  <div className="emoji-selector animate-fade-in" style={{
-                    position: 'absolute',
-                    bottom: '100%',
-                    left: isUser ? '0' : 'auto',
-                    right: isUser ? 'auto' : '0',
-                    background: 'var(--sidebar-bg)',
-                    border: '1px solid var(--card-border)',
-                    borderRadius: '20px',
-                    padding: '4px 8px',
-                    display: 'flex',
-                    gap: '6px',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
                     zIndex: 10,
-                    boxShadow: 'var(--card-shadow)',
-                    marginBottom: '4px'
-                  }}>
-                    {['❤️', '🥰', '😂', '😢', '👍', '🔥'].map(emoji => (
-                      <span 
-                        key={emoji}
-                        className="emoji-option"
-                        style={{ cursor: 'pointer', fontSize: '1.1rem' }}
-                        onClick={() => handleToggleReaction(msg.id, emoji)}
-                      >
-                        {emoji}
-                      </span>
-                    ))}
+                    boxShadow: 'var(--card-shadow)'
+                  }}
+                  className="bubble-reaction-trigger"
+                >
+                  <Smile size={12} />
+                </button>
+                {activeReactionMenu === msg.id && (
+                  <div 
+                    className="emoji-selector animate-scale-in"
+                    style={{
+                      position: 'absolute',
+                      right: '0',
+                      top: '-45px',
+                      zIndex: 20,
+                      display: 'flex',
+                      gap: '6px',
+                      background: 'rgba(20, 20, 20, 0.95)',
+                      backdropFilter: 'blur(10px)',
+                      border: '1px solid var(--card-border)',
+                      padding: '6px 12px',
+                      borderRadius: '20px',
+                      boxShadow: 'var(--card-shadow)'
+                    }}
+                  >
+                    {['❤️', '🥰', '😂', '😢', '👍', '🔥'].map(emoji => {
+                      const hasReacted = msg.reactions?.some(r => r.reaction === emoji && r.user_id === user?.id);
+                      return (
+                        <span 
+                          key={emoji}
+                          className={`emoji-option ${hasReacted ? 'active' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleReactionClick(msg.id, emoji);
+                          }}
+                          style={{
+                            cursor: 'pointer',
+                            fontSize: '1.1rem',
+                            transition: 'transform 0.2s ease',
+                            display: 'inline-block'
+                          }}
+                        >
+                          {emoji}
+                        </span>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -1347,29 +1355,6 @@ const Chat = () => {
           className="custom-context-menu" 
           style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
         >
-          {/* Reaction Emoji Row at the top of Context Menu */}
-          <div className="context-menu-reactions" style={{
-            display: 'flex',
-            gap: '8px',
-            padding: '8px 12px',
-            borderBottom: '1px solid var(--card-border)',
-            justifyContent: 'space-around'
-          }}>
-            {['❤️', '🥰', '😂', '😢', '👍', '🔥'].map(emoji => (
-              <span 
-                key={emoji}
-                className="context-emoji-option"
-                style={{ cursor: 'pointer', fontSize: '1.25rem' }}
-                onClick={() => {
-                  handleToggleReaction(contextMenu.message.id, emoji);
-                  setContextMenu(null);
-                }}
-              >
-                {emoji}
-              </span>
-            ))}
-          </div>
-
           {localStorage.getItem('pookie-read-aloud-available') !== 'false' && (
             <button 
               className="context-menu-item"
@@ -1411,27 +1396,114 @@ const Chat = () => {
         </div>
       )}
 
-      {/* Heart Burst Screen Overlay */}
-      {showHeartBurst && (
-        <div className="heart-burst-overlay">
-          {[...Array(16)].map((_, idx) => {
-            const spreadX = (idx % 2 === 0 ? 1 : -1) * (10 + Math.random() * 120);
-            return (
-              <span 
-                key={idx} 
-                className="burst-heart" 
-                style={{
-                  left: '50%',
-                  bottom: '20%',
-                  '--spread-x': `${spreadX}px`,
-                  animationDelay: `${Math.random() * 0.25}s`,
-                  fontSize: `${1.2 + Math.random() * 1.8}rem`
+      {/* 7. MOBILE LONG-PRESS REACTION MODAL OVERLAY */}
+      {activeReactingMsg && (
+        <div 
+          className="mobile-reactions-overlay" 
+          onClick={() => setActiveReactingMsg(null)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(10, 10, 10, 0.75)',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            zIndex: 3000,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+            animation: 'fadeIn 0.25s ease-out'
+          }}
+        >
+          {/* Reaction Bar Card */}
+          <div 
+            className="mobile-reactions-popup glass-panel animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              display: 'flex',
+              gap: '12px',
+              padding: '12px 20px',
+              borderRadius: '24px',
+              marginBottom: '20px',
+              boxShadow: 'var(--card-shadow)'
+            }}
+          >
+            {['❤️', '🥰', '😂', '😢', '👍', '🔥'].map(emoji => {
+              const hasReacted = activeReactingMsg.reactions?.some(r => r.reaction === emoji && r.user_id === user?.id);
+              return (
+                <span 
+                  key={emoji}
+                  className={`emoji-option ${hasReacted ? 'active' : ''}`}
+                  onClick={() => {
+                    handleReactionClick(activeReactingMsg.id, emoji);
+                    setActiveReactingMsg(null);
+                  }}
+                  style={{
+                    fontSize: '1.8rem',
+                    cursor: 'pointer',
+                    transition: 'transform 0.15s ease',
+                    display: 'inline-block',
+                    transform: hasReacted ? 'scale(1.2)' : 'none'
+                  }}
+                >
+                  {emoji}
+                </span>
+              );
+            })}
+          </div>
+
+          {/* Context Options Card */}
+          <div 
+            className="glass-card animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: '280px',
+              padding: '12px',
+              borderRadius: 'var(--border-radius-md)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px',
+              boxShadow: 'var(--card-shadow)'
+            }}
+          >
+            <button 
+              className="context-menu-item"
+              onClick={() => {
+                navigator.clipboard.writeText(activeReactingMsg.content);
+                setActiveReactingMsg(null);
+              }}
+              style={{ padding: '12px', display: 'flex', alignItems: 'center', gap: '8px', width: '100%', border: 'none', background: 'none', color: 'var(--text-main)', fontSize: '0.9rem', cursor: 'pointer' }}
+            >
+              📋 Copy Text
+            </button>
+            <button 
+              className="context-menu-item"
+              onClick={() => {
+                handleDeleteMessage(activeReactingMsg.id);
+                setActiveReactingMsg(null);
+              }}
+              style={{ padding: '12px', display: 'flex', alignItems: 'center', gap: '8px', width: '100%', border: 'none', background: 'none', color: '#ef4444', fontSize: '0.9rem', cursor: 'pointer' }}
+            >
+              🗑️ Delete Message
+            </button>
+            {localStorage.getItem('pookie-read-aloud-available') !== 'false' && (
+              <button 
+                className="context-menu-item"
+                onClick={() => {
+                  startReadAloud(activeReactingMsg);
+                  setActiveReactingMsg(null);
                 }}
+                style={{ padding: '12px', display: 'flex', alignItems: 'center', gap: '8px', width: '100%', border: 'none', background: 'none', color: 'var(--text-main)', fontSize: '0.9rem', cursor: 'pointer' }}
               >
-                ❤️
-              </span>
-            );
-          })}
+                🔊 Read Aloud
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>
