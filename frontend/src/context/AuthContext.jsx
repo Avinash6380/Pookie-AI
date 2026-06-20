@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../services/supabase.js';
-import { signInWithPopup } from 'firebase/auth';
+import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { auth as firebaseAuth, googleProvider, isFirebaseConfigured } from '../services/firebase.js';
 
 
@@ -73,7 +73,10 @@ export const AuthProvider = ({ children }) => {
     if (isFirebaseConfigured && firebaseAuth && googleProvider) {
       console.log('Authenticating with Google via Firebase Auth popup...');
       const result = await signInWithPopup(firebaseAuth, googleProvider);
-      const idToken = await result.user.getIdToken();
+      
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const idToken = credential?.idToken;
+      if (!idToken) throw new Error("No Google ID token in credentials");
       
       // Decode ID token to inspect audience (Google Client ID)
       try {
