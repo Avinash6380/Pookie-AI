@@ -138,11 +138,17 @@ router.post('/onboarding', requireAuth, async (req, res) => {
     // 1. Save to user_memory table
     const { error: nameErr } = await supabase
       .from('user_memory')
-      .upsert({ user_id: userId, memory_key: 'user_name', memory_value: name.trim() });
+      .upsert(
+        { user_id: userId, memory_key: 'user_name', memory_value: name.trim() },
+        { onConflict: 'user_id,memory_key' }
+      );
 
     const { error: genderErr } = await supabase
       .from('user_memory')
-      .upsert({ user_id: userId, memory_key: 'gender', memory_value: gender.trim() });
+      .upsert(
+        { user_id: userId, memory_key: 'gender', memory_value: gender.trim() },
+        { onConflict: 'user_id,memory_key' }
+      );
 
     if (nameErr || genderErr) {
       throw new Error(nameErr?.message || genderErr?.message || 'Error inserting onboarding memories');
@@ -180,7 +186,10 @@ router.post('/name', requireAuth, async (req, res) => {
     // 1. Update user name in user_memory
     const { error: nameErr } = await supabase
       .from('user_memory')
-      .upsert({ user_id: userId, memory_key: 'user_name', memory_value: name.trim() });
+      .upsert(
+        { user_id: userId, memory_key: 'user_name', memory_value: name.trim() },
+        { onConflict: 'user_id,memory_key' }
+      );
 
     if (nameErr) throw nameErr;
 
