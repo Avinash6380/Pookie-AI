@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { Menu, AlertCircle, Loader } from 'lucide-react';
+import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
+import { Menu, AlertCircle, Loader, MessageSquare, History, Users, User, Settings as SettingsIcon } from 'lucide-react';
 import { useAuth } from './context/AuthContext.jsx';
 import { apiCall } from './services/api.js';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
@@ -19,9 +19,16 @@ import Characters from './pages/Characters.jsx';
 import Memory from './pages/Memory.jsx';
 import Relationship from './pages/Relationship.jsx';
 import Streaks from './pages/Streaks.jsx';
+import AuthCallback from './pages/AuthCallback.jsx';
+
 
 const Layout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const location = useLocation();
+
+  const isTabActive = (path) => {
+    return location.pathname === path;
+  };
 
   return (
     <div className="app-container">
@@ -61,6 +68,46 @@ const Layout = ({ children }) => {
       <main className="main-content">
         {children}
       </main>
+
+      {/* Mobile Bottom Navigation Bar */}
+      <div className="mobile-bottom-nav">
+        <Link 
+          to="/chat" 
+          className={`bottom-nav-item ${isTabActive('/chat') ? 'active' : ''}`}
+        >
+          <MessageSquare size={20} />
+          <span>Chat</span>
+        </Link>
+        <button 
+          onClick={() => setSidebarOpen(true)} 
+          className={`bottom-nav-item ${sidebarOpen ? 'active' : ''}`}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontFamily: 'inherit' }}
+        >
+          <History size={20} />
+          <span>History</span>
+        </button>
+        <Link 
+          to="/characters" 
+          className={`bottom-nav-item ${isTabActive('/characters') ? 'active' : ''}`}
+        >
+          <Users size={20} />
+          <span>Characters</span>
+        </Link>
+        <Link 
+          to="/profile" 
+          className={`bottom-nav-item ${isTabActive('/profile') ? 'active' : ''}`}
+        >
+          <User size={20} />
+          <span>Profile</span>
+        </Link>
+        <Link 
+          to="/settings" 
+          className={`bottom-nav-item ${isTabActive('/settings') ? 'active' : ''}`}
+        >
+          <SettingsIcon size={20} />
+          <span>Settings</span>
+        </Link>
+      </div>
     </div>
   );
 };
@@ -228,6 +275,7 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
 
         {/* Authenticated Routes */}
         <Route path="/dashboard" element={<ProtectedRoute><Layout><Dashboard /></Layout></ProtectedRoute>} />

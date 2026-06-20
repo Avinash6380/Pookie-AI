@@ -108,6 +108,28 @@ app.use((err, req, res, next) => {
 });
 
 // Start Server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Pookie AI backend server running on port ${PORT}`);
+  
+  // Verify message_reactions table existence on startup
+  try {
+    const { error } = await supabase.from('message_reactions').select('id').limit(1);
+    if (error && error.code === '42P01') {
+      console.warn('\n⚠️  WARNING: The "message_reactions" table does not exist in your Supabase database!');
+      console.warn('Please run the following SQL schema in your Supabase SQL Editor:');
+      console.warn(`
+      CREATE TABLE IF NOT EXISTS public.message_reactions (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          message_id UUID NOT NULL REFERENCES public.messages(id) ON DELETE CASCADE,
+          user_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
+          reaction VARCHAR(50) NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(message_id, user_id)
+      );\n`);
+    } else {
+      console.log('✅ Supabase "message_reactions" table verified.');
+    }
+  } catch (err) {
+    console.error('Failed to verify message_reactions table on startup:', err.message);
+  }
 });

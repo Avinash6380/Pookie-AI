@@ -67,31 +67,14 @@ export const AuthProvider = ({ children }) => {
     return data;
   };
 
-  // Google OAuth sign in function using Firebase Auth with Supabase Exchange
+  // Google OAuth sign in function
   const signInWithGoogle = async () => {
-    if (!isFirebaseConfigured) {
-      throw new Error("Firebase config is missing. Please set up the Firebase API keys in your frontend .env file.");
-    }
-    
-    // 1. Sign in with Firebase popup
-    const result = await signInWithPopup(firebaseAuth, googleProvider);
-    
-    // 2. Extract Google credentials and tokens
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    const idToken = credential?.idToken;
-    const accessToken = credential?.accessToken;
-    
-    if (!idToken) {
-      throw new Error("Failed to retrieve Google ID token from OAuth credential.");
-    }
-
-    // 3. Authenticate with Supabase using the ID token
-    const { data, error } = await supabase.auth.signInWithIdToken({
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      token: idToken,
-      access_token: accessToken
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`
+      }
     });
-
     if (error) throw error;
     return data;
   };
@@ -101,7 +84,7 @@ export const AuthProvider = ({ children }) => {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'facebook',
       options: {
-        redirectTo: `${window.location.origin}/dashboard`
+        redirectTo: `${window.location.origin}/auth/callback`
       }
     });
     if (error) throw error;

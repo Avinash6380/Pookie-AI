@@ -325,7 +325,32 @@ router.get('/history/:characterId', requireAuth, async (req, res) => {
 
     if (error) throw error;
 
-    return res.json(messages);
+    let messagesWithReactions = messages;
+    if (messages && messages.length > 0) {
+      const messageIds = messages.map(m => m.id);
+      const { data: reactions, error: rectErr } = await supabase
+        .from('message_reactions')
+        .select('*')
+        .in('message_id', messageIds);
+
+      if (!rectErr && reactions) {
+        messagesWithReactions = messages.map(msg => {
+          const msgReactions = reactions.filter(r => r.message_id === msg.id);
+          return {
+            ...msg,
+            reactions: msgReactions.map(r => ({
+              userId: r.user_id, // NULL if AI
+              reaction: r.reaction
+            }))
+          };
+        });
+      } else {
+        // Fallback: empty reactions arrays
+        messagesWithReactions = messages.map(msg => ({ ...msg, reactions: [] }));
+      }
+    }
+
+    return res.json(messagesWithReactions);
   } catch (err) {
     console.error('Fetch history error:', err);
     return res.status(500).json({ error: 'Failed to retrieve chat history' });
@@ -634,6 +659,40 @@ router.post('/', requireAuth, async (req, res) => {
 
     if (uSaveErr) throw uSaveErr;
 
+    // Automatically trigger AI reaction (35% probability)
+    let aiReaction = null;
+    if (Math.random() < 0.35) {
+      const lowerMsg = message.toLowerCase();
+      let chosenEmoji = null;
+      if (lowerMsg.includes('love') || lowerMsg.includes('heart') || lowerMsg.includes('miss') || lowerMsg.includes('sweet') || lowerMsg.includes('darling') || lowerMsg.includes('dear') || lowerMsg.includes('pookie')) {
+        chosenEmoji = Math.random() < 0.6 ? '❤️' : '🥰';
+      } else if (lowerMsg.includes('haha') || lowerMsg.includes('lol') || lowerMsg.includes('lmao') || lowerMsg.includes('comedy') || lowerMsg.includes('funny') || lowerMsg.includes('😂')) {
+        chosenEmoji = '😂';
+      } else if (lowerMsg.includes('sad') || lowerMsg.includes('cry') || lowerMsg.includes('hurt') || lowerMsg.includes('bad') || lowerMsg.includes('sorry') || lowerMsg.includes('pain') || lowerMsg.includes('🥺')) {
+        chosenEmoji = '😢';
+      } else if (lowerMsg.includes('hot') || lowerMsg.includes('sexy') || lowerMsg.includes('fire') || lowerMsg.includes('cute') || lowerMsg.includes('🔥')) {
+        chosenEmoji = Math.random() < 0.5 ? '🔥' : '🥰';
+      } else {
+        chosenEmoji = Math.random() < 0.5 ? '👍' : '🥰';
+      }
+
+      if (chosenEmoji) {
+        try {
+          const { data: insertedReaction } = await supabase
+            .from('message_reactions')
+            .insert({ message_id: userSavedMsg.id, user_id: null, reaction: chosenEmoji })
+            .select()
+            .single();
+          
+          if (insertedReaction) {
+            aiReaction = chosenEmoji;
+          }
+        } catch (rErr) {
+          console.warn('AI failed to save reaction:', rErr.message);
+        }
+      }
+    }
+
     // J. RESOLVE RESPONSE (Try Local Semantic Dataset Matching first - Priority 1)
     let aiText = '';
     let isDatasetMatch = false;
@@ -780,8 +839,14 @@ General Rules:
 
     // M. RETURN RESPONSE
     return res.json({
-      userMessage: userSavedMsg,
-      aiMessage: aiSavedMsg,
+      userMessage: {
+        ...userSavedMsg,
+        reactions: aiReaction ? [{ userId: null, reaction: aiReaction }] : []
+      },
+      aiMessage: {
+        ...aiSavedMsg,
+        reactions: []
+      },
       relationship: {
         xp: newXp,
         level: newLevel,
@@ -793,6 +858,89 @@ General Rules:
   } catch (err) {
     console.error('Chat routing internal error:', err);
     return res.status(500).json({ error: 'Failed to process conversation' });
+  }
+});
+
+// 3. ADD OR TOGGLE REACTION
+router.post('/reactions', requireAuth, async (req, res) => {
+  const { messageId, reaction } = req.body;
+  const userId = req.user.id;
+
+  if (!messageId || !reaction) {
+    return res.status(400).json({ error: 'messageId and reaction are required' });
+  }
+
+  try {
+    // Check if this reaction already exists
+    const { data: existing, error: checkErr } = await supabase
+      .from('message_reactions')
+      .select('*')
+      .eq('message_id', messageId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (checkErr) throw checkErr;
+
+    if (existing) {
+      if (existing.reaction === reaction) {
+        // Toggle off: delete if same reaction
+        const { error: delErr } = await supabase
+          .from('message_reactions')
+          .delete()
+          .eq('id', existing.id);
+        
+        if (delErr) throw delErr;
+        return res.json({ success: true, action: 'removed', reaction });
+      } else {
+        // Update reaction to new emoji
+        const { data: updated, error: updErr } = await supabase
+          .from('message_reactions')
+          .update({ reaction })
+          .eq('id', existing.id)
+          .select()
+          .single();
+        
+        if (updErr) throw updErr;
+        return res.json({ success: true, action: 'updated', reaction: updated });
+      }
+    } else {
+      // Create new reaction
+      const { data: inserted, error: insErr } = await supabase
+        .from('message_reactions')
+        .insert({ message_id: messageId, user_id: userId, reaction })
+        .select()
+        .single();
+
+      if (insErr) throw insErr;
+      return res.json({ success: true, action: 'added', reaction: inserted });
+    }
+  } catch (err) {
+    console.error('Reaction update error:', err);
+    return res.status(500).json({ error: 'Failed to update reaction' });
+  }
+});
+
+// 4. DELETE REACTION
+router.delete('/reactions', requireAuth, async (req, res) => {
+  const { messageId } = req.body;
+  const userId = req.user.id;
+
+  if (!messageId) {
+    return res.status(400).json({ error: 'messageId is required' });
+  }
+
+  try {
+    const { error } = await supabase
+      .from('message_reactions')
+      .delete()
+      .eq('message_id', messageId)
+      .eq('user_id', userId);
+
+    if (error) throw error;
+    return res.json({ success: true, message: 'Reaction deleted' });
+  } catch (err) {
+    console.error('Reaction deletion error:', err);
+    return res.status(500).json({ error: 'Failed to delete reaction' });
   }
 });
 
