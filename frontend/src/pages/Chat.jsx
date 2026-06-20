@@ -87,11 +87,33 @@ const Chat = () => {
   useEffect(() => {
     if (!activeCharacter) return;
 
+    const cacheKey = `pookie-chat-history-${activeCharacter.id}-${user?.id || 'guest'}`;
+
     const fetchHistory = async () => {
-      setLoading(true);
+      // 1. Stale-While-Revalidate: load cached messages instantly if they exist
+      const cached = localStorage.getItem(cacheKey);
+      let hasCache = false;
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setMessages(parsed);
+            hasCache = true;
+          }
+        } catch (err) {
+          console.warn('Failed to parse cached history:', err);
+        }
+      }
+
+      // If we don't have cache, show loading spinner. If we do, fetch silently in the background
+      if (!hasCache) {
+        setLoading(true);
+      }
+
       try {
         const history = await apiCall(`/api/chat/history/${activeCharacter.id}`, 'GET', null, getAuthHeaders);
         setMessages(history);
+        localStorage.setItem(cacheKey, JSON.stringify(history));
       } catch (err) {
         console.error('Fetch history error:', err);
       } finally {
@@ -126,12 +148,24 @@ const Chat = () => {
 
       recognitionRef.current = rec;
     }
-  }, [activeCharacter, getAuthHeaders]);
+  }, [activeCharacter, getAuthHeaders, user]);
 
   // 2. Auto scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, aiTyping]);
+
+  // 2b. Sync messages to localStorage cache
+  useEffect(() => {
+    if (activeCharacter) {
+      const cacheKey = `pookie-chat-history-${activeCharacter.id}-${user?.id || 'guest'}`;
+      if (messages.length > 0) {
+        localStorage.setItem(cacheKey, JSON.stringify(messages));
+      } else {
+        localStorage.removeItem(cacheKey);
+      }
+    }
+  }, [messages, activeCharacter, user]);
 
   // Cleanup speech synthesis on unmount
   useEffect(() => {
